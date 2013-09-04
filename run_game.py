@@ -4,8 +4,9 @@ import random
 import tilemap
 import context
 import math
+import heapq
 from itertools import product
-from euclid import Vector2, Vector3, Matrix4
+from euclid import Point2, Vector2, Vector3, Matrix4
 
 from pygame.locals import *
 
@@ -35,6 +36,47 @@ screen_dim = (1200, 800)
 def distance2((ax, ay), (bx, by)):
     return math.hypot((ax - bx), (ay - by))
 
+def clip(vector, lowest, highest):
+    return type(vector)(map(min, map(max, vector, lowest), highest))
+
+"""
+modified from:
+http://stackoverflow.com/questions/4159331/python-speed-up-an-a-star-pathfinding-algorithm
+"""
+def aStar(current, end, limit):
+    parent = {}
+    openHeap = []
+    openSet = set()
+    closedSet = set()
+
+    def surrounding((x, y)):
+        return [ clip(i, (0,0), limit) for i in ((x-1, y-1), (x-1, y), (x-1, y+1), (x, y-1), (x, y+1),
+                (x+1, y-1), (x+1, y), (x+1, y+1)) ]
+
+    def retracePath(c):
+        path = [c]
+        while parent.get(c, None) is not None:
+            c = parent[c]
+            path.append(c)
+        path.reverse()
+        return path
+
+    openSet.add(current)
+    openHeap.append((0,current))
+    while openSet:
+        current = heapq.heappop(openHeap)[1]
+        if current == end:
+            return retracePath(current)
+        openSet.remove(current)
+        closedSet.add(current)
+        for tile in surrounding(current):
+            if tile not in closedSet:
+                if tile not in openSet:
+                    openSet.add(tile)
+                    heapq.heappush(openHeap, (distance2(tile, end),tile))
+                parent[tile] = current
+    return []
+
 class LevelMap:
     def __init__(self, dim):
         self.height, self.width = dim
@@ -60,13 +102,14 @@ class LevelMap:
 
     def nearest_tile(self, origin, tile_type):
         nearest = (None, 9999999999999)
-        
+        origin = origin[0], origin[1]
+
         for position in self.tiles_of_type(tile_type):
             d = distance2(position, origin)
             if d < nearest[1]:
                 nearest = position, d
 
-        return Vector2(*nearest[0]), nearest[1] if nearest[0] else None
+        return (Point2(*nearest[0]), nearest[1]) if nearest[0] else (None, None)
 
 
 class AIContext(context.Context):
@@ -78,30 +121,42 @@ class MoveRandomAI(AIContext):
     def update(self, time):
         self.sprite.position += self.sprite.move_vector * time
         if random.random() > .90:
+            s = self.sprite.travel_speed
             self.sprite.move_vector = Vector2(
-                random.uniform(-.05/TIMESTEP, .05/TIMESTEP),
-                random.uniform(-.05/TIMESTEP, .05/TIMESTEP))
+                random.uniform(-s, s),
+                random.uniform(-s, s))
 
 
 class MoveToMaterialsAI(AIContext):
     def update(self, time):
-        origin = Vector2(*self.sprite.rect.center)
-        origin /= TILESIZE
-        dest, dist = self.sprite.level.nearest_tile(origin, MATERIALS)
+        dest, dist = self.sprite.level.nearest_tile(self.sprite.position, MATERIALS)
 
-        norm = abs(dest - origin)
+        if dest:
+            path = aStar(tuple(map(round, self.sprite.position)), tuple(dest), (20, 20))
+        else:
+            global MATERIALS
+            MATERIALS += 1
+            return
 
-        if norm:
-            delta = dest / norm
-            self.sprite.rect.x += delta.x / dist * time
-            self.sprite.rect.y += delta.y / dist * time
+        x, y = map(int, self.sprite.position)
+        if self.sprite.level.data[y][x] == MATERIALS:
+            self.sprite.level.data[y][x] = 0
+
+        if path:
+            s = self.sprite.travel_speed
+            n = self.sprite.position - path.pop()
+            if len(path) == 2:
+                n += (.5, .5)
+            self.sprite.move_vector = Vector2(*clip(list(n), (-s, -s), (s, s)))
+            self.sprite.position -= self.sprite.move_vector * time
 
 class GameObject(pygame.sprite.Sprite):
     def __init__(self, level):
         super(GameObject, self).__init__()
+        self.travel_speed = .5/TIMESTEP
         self.level = level
         self.ai_stack = context.ContextDriver()
-        self.move_vector = Vector2(.05/TIMESTEP,0)
+        self.move_vector = Vector2(0,0)
         self.position = Vector2(0,0)
         self.init()
 
@@ -111,6 +166,7 @@ class GameObject(pygame.sprite.Sprite):
         try:
             self.ai_stack.current_context.update(time)
         except:
+            raise
             pass
 
 class Harvester(GameObject):
@@ -169,8 +225,8 @@ if __name__ == '__main__':
 
     h00 = Harvester(level)
 
-    h00.ai_stack.append(MoveRandomAI(sprite=h00))
-    #h00.ai_stack.append(MoveToMaterialsAI(sprite=h00))
+    #h00.ai_stack.append(MoveRandomAI(sprite=h00))
+    h00.ai_stack.append(MoveToMaterialsAI(sprite=h00))
     h00.position += 4.5, 4.5
 
     game_group = IsoGroup()
