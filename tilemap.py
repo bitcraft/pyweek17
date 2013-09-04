@@ -92,7 +92,7 @@ class TilemapRenderer:
 
         points = ((ax, ay), (bx, by), (cx, cy), (dx, dy))
 
-        pygame.draw.polygon(surface, self.layers[l].colors[value], points)
+        pygame.draw.polygon(surface, self.layers[l].colors[value-1], points)
 
     def project_point(self, (x, y)):
         """ world --> screen """

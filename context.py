@@ -88,6 +88,9 @@ class Context(object):
         """
         pass
 
+    def done(self):
+        self.parent.remove(self)
+
 
 class ContextDriver(object):
     """
