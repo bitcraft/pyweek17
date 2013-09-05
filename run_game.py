@@ -192,7 +192,10 @@ class SearchAndTravelAI(AIContext):
     def plan(self):
         spr = self.sprite
 
-        blacklist = SearchAndTravelAI.keys[self.my_key]
+        if self.my_key is None:
+            blacklist = []
+        else:
+            blacklist = SearchAndTravelAI.keys[self.my_key]
         self.dest, dist = spr.level.nearest_tile(spr.position, self.tile_type, blacklist)
 
         if self.dest is not None:
@@ -201,22 +204,8 @@ class SearchAndTravelAI(AIContext):
 
     def enter(self):
         self.path = None
-        self.my_key = getattr(self, "key", self)
+        self.my_key = getattr(self, "key", None)
 
-    def exit(self):
-        self.path = None
-        if self.my_key == self:
-            try:
-                del SearchAndTravelAI.keys[self.my_key]
-            except KeyError:
-                pass
-        else:
-            try:
-                SearchAndTravelAI.keys[self.my_key].remove(self.dest)
-            except ValueError:
-                pass
-            except:
-                raise
 
 class DropCarriedAI(AIContext):
     def update(self, tile):
@@ -385,8 +374,6 @@ if __name__ == '__main__':
 
         draw_bar(screen, colors[-4], colors[-2], Rect(10, 60, 32, 128), player.energy / 50.0)
         draw_bar(screen, colors[REGOLITH-1], colors[-2], Rect(48, 60, 32, 128), player.regolith / 50.0)
-        small_progress(screen, colors[REGOLITH-1], colors[-2], (10,200), player.regolith / 50.0)
-
 
         pygame.display.flip()
 
