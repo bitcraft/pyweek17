@@ -5,12 +5,14 @@ import tilemap
 import context
 import math
 import heapq
+import collections
 from itertools import product
 from euclid import Vector2, Point2, Point3, Vector3, Matrix4
 
 from pygame.locals import *
 
 colors = [
+    '#191e18',
     '#75987c',
     '#403d32',
     '#ef899b',
@@ -21,7 +23,6 @@ colors = [
     '#f7a50d',
     '#403e30',
     '#a2000d',
-    '#191e18',
     '#e0e2e0',
     '#f9f9f0',
 ]
@@ -31,9 +32,9 @@ colors = [ pygame.Color(i) for i in colors ]
 TILESIZE = 48
 TIMESTEP = 30.0
 
-REGOLITH = 1
-EXCAVATED = 2
-STOCKPILE = 3
+REGOLITH = 2
+EXCAVATED = 3
+STOCKPILE = 4
 
 
 screen_dim = (1200, 800)
@@ -43,8 +44,6 @@ def distance2((ax, ay), (bx, by)):
 
 def clip(vector, lowest, highest):
     return type(vector)(map(min, map(max, vector, lowest), highest))
-
-TILECHANGE = 0
 
 """
 modified from:
@@ -96,8 +95,8 @@ class LevelMap:
         # initialize level data array with 1
         [ self.data.append(array.array('B')) for i in xrange(self.height) ]
         for (y, x) in product(xrange(self.height), xrange(self.width)):
-            #self.data[y].append(REGOLITH)
-            self.data[y].append(random.randint(0, 10))
+            self.data[y].append(REGOLITH)
+            #self.data[y].append(random.randint(0, 10))
 
     def tiles_of_type(self, tile_type):
         for y, row in enumerate(self.data):
@@ -105,13 +104,13 @@ class LevelMap:
                 if value == tile_type:
                     yield (x, y)
 
-    def nearest_tile(self, origin, tile_type):
+    def nearest_tile(self, origin, tile_type, blacklist=None):
         nearest = (None, 9999999999999)
         origin = origin[0], origin[1]
 
         for position in self.tiles_of_type(tile_type):
             d = distance2(position, origin)
-            if d < nearest[1]:
+            if d < nearest[1] and position not in blacklist:
                 nearest = position, d
 
         return (Point2(*nearest[0]), nearest[1]) if nearest[0] else (None, None)
@@ -128,7 +127,6 @@ class ShuttleFlyAI(AIContext):
 
     def update(self, time):
         self.sprite.position += self.sprite.move_vector * time
-        print self.sprite.position
 
     def exit(self):
         self.sprite.move_vector = Vector3(0,0,0)
@@ -147,29 +145,24 @@ class MoveRandomAI(AIContext):
 
 class ExcavateAI(AIContext):
     def update(self, tile):
-        global TILECHANGE
-
         x, y, z = map(int, self.sprite.position)
 
         if self.sprite.level.data[y][x] == REGOLITH:
             self.sprite.level.data[y][x] = EXCAVATED
             self.sprite.carried += 1
-            TILECHANGE = 1
-            self.done()
+            player.tilechange = 1
+
+        self.done()
 
 
 class SearchAndTravelAI(AIContext):
+    keys = collections.defaultdict(list)
+
     def update(self, time):
         spr = self.sprite
 
         if not self.path:
-            dest, dist = spr.level.nearest_tile(spr.position, self.tile_type)
-
-            if dest:
-                self.path = aStar(tuple(map(round, spr.position[:2])), tuple(dest), (20, 20))
-            else:
-                self.done()
-                return
+            self.plan()
 
         n = spr.position - self.path[-1] - (.5, .5, 0)
         if abs(n) < .05:
@@ -182,12 +175,32 @@ class SearchAndTravelAI(AIContext):
         spr.move_vector = n.normalize()
         spr.position -= spr.move_vector * spr.travel_speed
 
+    def plan(self):
+        spr = self.sprite
+
+        blacklist = SearchAndTravelAI.keys[self.my_key]
+        self.dest, dist = spr.level.nearest_tile(spr.position, self.tile_type, blacklist)
+
+        if self.dest:
+            self.path = aStar(tuple(map(round, spr.position[:2])), tuple(self.dest), (20, 20))
+            SearchAndTravelAI.keys[self.my_key].append(self.dest)
+        else:
+            self.done()
+            return
+
     def enter(self):
         self.path = None
+        self.my_key = getattr(self, "key", self)
 
     def exit(self):
         self.path = None
-
+        if self.my_key == self:
+            try:
+                del SearchAndTravelAI.keys[self.my_key]
+            except KeyError:
+                pass
+        else:
+            SearchAndTravelAI.keys[self.my_key].remove(self.dest)
 
 class DropCarriedAI(AIContext):
     def update(self, tile):
@@ -197,6 +210,7 @@ class DropCarriedAI(AIContext):
 
             if spr.level.data[y][x] == STOCKPILE:
                 spr.carried -= 1
+                player.regolith += 1
             else:
                 self.done()
         else:
@@ -206,7 +220,7 @@ class DropCarriedAI(AIContext):
             self.done()
 
 
-class GameObject(pygame.sprite.DirtySprite):
+class GameObject(pygame.sprite.Sprite):
     def __init__(self, level):
         super(GameObject, self).__init__()
         self.travel_speed = 3/TIMESTEP
@@ -234,12 +248,12 @@ class GameObject(pygame.sprite.DirtySprite):
 class Harvester(GameObject):
     def init(self):
         self.image = pygame.Surface((12, 24))
-        self.image.fill(colors[-1])
+        self.image.fill((random.randint(64, 255), random.randint(64, 255), random.randint(64, 255)))
         self.world_size = Vector2(.1, .5)
         self.carried = 0
 
         self.ai_lists.append([
-            SearchAndTravelAI(sprite=self, tile_type=REGOLITH),
+            SearchAndTravelAI(sprite=self, tile_type=REGOLITH, key=REGOLITH),
             ExcavateAI(sprite=self),
             SearchAndTravelAI(sprite=self, tile_type=STOCKPILE),
             DropCarriedAI(sprite=self)
@@ -283,6 +297,18 @@ class IsoGroup(pygame.sprite.Group):
     def draw(self, surface, area):
         self.tilemap.draw(surface, area, self.sprites())
 
+class Player:
+    energy = 0
+    regolith = 0
+    tilechange = 0
+
+player = Player()
+
+
+def draw_bar(s, c1, c2, r, v):
+    s.fill(c1, r)
+    s.fill(c2, (r.topleft, (r.w, r.h-r.h*v)))
+
 if __name__ == '__main__':
     pygame.init()
     pygame.font.init()
@@ -293,32 +319,36 @@ if __name__ == '__main__':
     level = LevelMap((20, 20))
 
     level.data[6][6] = STOCKPILE
+    level.data[12][12] = STOCKPILE
 
     tilemap = tilemap.TilemapRenderer([level], TILESIZE)
-
-    h00 = Harvester(level)
-    h00.position += 4.5, 4.5, 0
 
     game_group = IsoGroup()
     game_group.set_tilemap(tilemap, TILESIZE)
 
-    game_group.add(h00)
+    for i in xrange(15):
+        h = Harvester(level)
+        h.position += 4.5, 4.5, 0
+        game_group.add(h)
 
     area = pygame.Rect((0,0), screen_dim)
+
+    for i, c in enumerate(colors):
+        screen.fill(c, (i*32+10,10,32,32))
+        screen.blit(font.render(str(i+1), 1, (255,255,255)), (i*32+20, 44))
 
     run = True
     while run:
         game_group.update(30)
 
-        if TILECHANGE:
+        if player.tilechange:
             game_group.tilemap.changed = True
-            TILECHANGE = False
+            player.tilechange = False
 
         game_group.draw(screen, area)
 
-        for i, c in enumerate(colors):
-            screen.fill(c, (i*32+10,10,32,32))
-            screen.blit(font.render(str(i+1), 1, (255,255,255)), (i*32+20, 44))
+        draw_bar(screen, colors[-4], colors[-2], Rect(10, 60, 32, 128), player.energy / 50.0)
+        draw_bar(screen, colors[REGOLITH-1], colors[-2], Rect(48, 60, 32, 128), player.regolith / 50.0)
 
         pygame.display.flip()
 
@@ -332,6 +362,7 @@ if __name__ == '__main__':
                 x, y, z = game_group.tilemap.unproject_point(Vector3(mx, my, 0))
                 try:
                     level.data[int(y)][int(x)] = EXCAVATED
+                    player.tilechange = 1
                 except IndexError:
                     pass
 
