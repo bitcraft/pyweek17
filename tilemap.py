@@ -71,8 +71,6 @@ class TilemapRenderer:
         if self.queue:
             self.flushQueue(surface)
 
-
-
         for spr in sprites:
             p = self.project_point(spr.position)
             w, h = spr.image.get_size()

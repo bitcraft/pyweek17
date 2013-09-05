@@ -144,16 +144,26 @@ class MoveRandomAI(AIContext):
 
 
 class ExcavateAI(AIContext):
-    def update(self, tile):
-        x, y, z = map(int, self.sprite.position)
+    complete = 5000.0
 
-        if self.sprite.level.data[y][x] == REGOLITH:
+    def update(self, time):
+        self._progress += time
+        self.progress = self._progress / ExcavateAI.complete
+
+        if self.progress >= 1.0:
+            x, y, z = map(int, self.sprite.position)
             self.sprite.level.data[y][x] = EXCAVATED
             self.sprite.carried += 1
             player.tilechange = 1
+            self.done()
 
-        self.done()
+    def enter(self):
+        x, y, z = map(int, self.sprite.position)
+        if not self.sprite.level.data[y][x] == REGOLITH:
+            self.done()
 
+        self._progress = 0.0
+        self.progress = 0.0
 
 class SearchAndTravelAI(AIContext):
     keys = collections.defaultdict(list)
@@ -204,10 +214,8 @@ class SearchAndTravelAI(AIContext):
             try:
                 SearchAndTravelAI.keys[self.my_key].remove(self.dest)
             except ValueError:
-                print "failed to remove", self.dest
                 pass
             except:
-                print self.dest
                 raise
 
 class DropCarriedAI(AIContext):
@@ -250,8 +258,9 @@ class GameObject(pygame.sprite.Sprite):
         if task:
             task.update(time)
         else:
+            self.ai_stack = context.ContextDriver()
             for task in reversed(self.ai_lists[0]):
-                self.ai_stack.append(task)
+                self.ai_stack.queue(task)
 
 class Harvester(GameObject):
     def init(self):
@@ -303,7 +312,17 @@ class IsoGroup(pygame.sprite.Group):
         self.tile_size = tile_size
 
     def draw(self, surface, area):
-        self.tilemap.draw(surface, area, self.sprites())
+        sprites = self.sprites()
+
+        self.tilemap.draw(surface, area, sprites)
+
+        for s in sprites:
+            p = getattr(s.ai_stack.current_context, "progress", None)
+            if p:
+                point = self.tilemap.project_point(s.position + (0,0,1))
+                point = map(int, point[:2])
+                small_progress(surface, colors[REGOLITH-1], colors[-2], point, p)
+
 
 class Player:
     energy = 0
@@ -316,6 +335,12 @@ player = Player()
 def draw_bar(s, c1, c2, r, v):
     s.fill(c1, r)
     s.fill(c2, (r.topleft, (r.w, r.h-r.h*v)))
+
+def small_progress(s, c1, c2, point, v):
+    x = math.ceil(28.0*v)
+    if x > 28: x = 28
+    s.fill(c2, (point, (30, 8)))
+    s.fill(c1, (point[0]+1, point[1]+1, x, 6))
 
 if __name__ == '__main__':
     pygame.init()
@@ -336,7 +361,7 @@ if __name__ == '__main__':
     game_group = IsoGroup()
     game_group.set_tilemap(tilemap, TILESIZE)
 
-    for i in xrange(2):
+    for i in xrange(10):
         h = Harvester(level)
         h.position = Vector3(random.uniform(0,20), random.uniform(0,20), 0)
         game_group.add(h)
@@ -354,11 +379,14 @@ if __name__ == '__main__':
         if player.tilechange:
             game_group.tilemap.changed = True
             player.tilechange = False
+            screen.fill((0,0,0))
 
         game_group.draw(screen, area)
 
         draw_bar(screen, colors[-4], colors[-2], Rect(10, 60, 32, 128), player.energy / 50.0)
         draw_bar(screen, colors[REGOLITH-1], colors[-2], Rect(48, 60, 32, 128), player.regolith / 50.0)
+        small_progress(screen, colors[REGOLITH-1], colors[-2], (10,200), player.regolith / 50.0)
+
 
         pygame.display.flip()
 
