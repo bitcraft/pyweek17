@@ -164,6 +164,10 @@ class SearchAndTravelAI(AIContext):
         if not self.path:
             self.plan()
 
+            if not self.path:
+                self.done()
+                return
+
         n = spr.position - self.path[-1] - (.5, .5, 0)
         if abs(n) < .05:
             self.path.pop()
@@ -181,12 +185,9 @@ class SearchAndTravelAI(AIContext):
         blacklist = SearchAndTravelAI.keys[self.my_key]
         self.dest, dist = spr.level.nearest_tile(spr.position, self.tile_type, blacklist)
 
-        if self.dest:
+        if self.dest is not None:
             self.path = aStar(tuple(map(round, spr.position[:2])), tuple(self.dest), (20, 20))
-            SearchAndTravelAI.keys[self.my_key].append(self.dest)
-        else:
-            self.done()
-            return
+            SearchAndTravelAI.keys[self.my_key].append(tuple(self.dest))
 
     def enter(self):
         self.path = None
@@ -200,7 +201,14 @@ class SearchAndTravelAI(AIContext):
             except KeyError:
                 pass
         else:
-            SearchAndTravelAI.keys[self.my_key].remove(self.dest)
+            try:
+                SearchAndTravelAI.keys[self.my_key].remove(self.dest)
+            except ValueError:
+                print "failed to remove", self.dest
+                pass
+            except:
+                print self.dest
+                raise
 
 class DropCarriedAI(AIContext):
     def update(self, tile):
@@ -318,17 +326,19 @@ if __name__ == '__main__':
 
     level = LevelMap((20, 20))
 
-    level.data[6][6] = STOCKPILE
-    level.data[12][12] = STOCKPILE
+    level.data[4][4] = STOCKPILE
+    level.data[16][16] = STOCKPILE
+    level.data[4][16] = STOCKPILE
+    level.data[16][4] = STOCKPILE
 
     tilemap = tilemap.TilemapRenderer([level], TILESIZE)
 
     game_group = IsoGroup()
     game_group.set_tilemap(tilemap, TILESIZE)
 
-    for i in xrange(15):
+    for i in xrange(2):
         h = Harvester(level)
-        h.position += 4.5, 4.5, 0
+        h.position = Vector3(random.uniform(0,20), random.uniform(0,20), 0)
         game_group.add(h)
 
     area = pygame.Rect((0,0), screen_dim)
@@ -358,13 +368,7 @@ if __name__ == '__main__':
             if event.type == QUIT: run = False
             if event.type == MOUSEMOTION:
                 mx, my = event.pos
-
                 x, y, z = game_group.tilemap.unproject_point(Vector3(mx, my, 0))
-                try:
-                    level.data[int(y)][int(x)] = EXCAVATED
-                    player.tilechange = 1
-                except IndexError:
-                    pass
 
         except KeyboardInterrupt:
             run = False
