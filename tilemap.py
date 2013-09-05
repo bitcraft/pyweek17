@@ -37,12 +37,16 @@ class TilemapRenderer:
         self.dirty_rect_list = []
         self.dirty_surface_list = []
 
+        self.shape_cache = {}
+
         self.surface = pygame.Surface((1200, 800))
 
     def center(self, (x, y)):
         pass
 
     def update(self, time=None):
+        #self.prj.rotate_axis(0.005, Vector3(0,0,1))
+        #self.changed = 1
         pass
 
     def reproject(self, rot):
@@ -67,6 +71,7 @@ class TilemapRenderer:
         if self.changed:
             self.redraw()
             surface.blit(self.surface, (0,0))
+            self.dirty_rect_list = []
             self.changed = False
 
         for rect in self.dirty_rect_list:
@@ -95,14 +100,6 @@ class TilemapRenderer:
         return map(int, p[:2])
 
     def paintTile(self, surface, (x, y, l)):
-        try:
-            value = self.layers[l].data[y][x]  
-        except IndexError:
-            return
-
-        if not value:
-            return
-
         ax, ay, az = self.project_point(Vector3(x, y, 0))
         bx, by, bz = self.project_point(Vector3(x+1, y, 0))
         cx, cy, cz = self.project_point(Vector3(x+1, y+1, 0))
@@ -110,7 +107,7 @@ class TilemapRenderer:
 
         points = ((ax, ay), (bx, by), (cx, cy), (dx, dy))
 
-        pygame.draw.polygon(surface, self.layers[l].colors[value-1], points)
+        pygame.draw.polygon(surface, self.layers[l].get_tile_color((x, y)), points)
 
     def project_point(self, point):
         """ world --> screen """
@@ -127,6 +124,7 @@ class TilemapRenderer:
         self.queue = None
 
     def redraw(self):
+        self.surface = pygame.Surface((1200, 800))
         self.queue = product(xrange(self.view.left, self.view.right),
                              xrange(self.view.top, self.view.bottom),
                              xrange(len(self.visibleTileLayers)))
