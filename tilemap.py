@@ -23,50 +23,66 @@ class TilemapRenderer:
         self.tile_size = float(tile_size)
         self.visibleTileLayers = layers
 
-        self.view = Matrix4()
-
-        # isometric view
-        self.prj = Matrix4()
-        self.prj.scale(tile_size, tile_size/2, 1.0)
-        #self.prj.rotate_axis(math.radians(60), Vector3(1,0,0))
-        self.prj.rotate_axis(math.radians(45), Vector3(0,0,1))
-        self.inv_prj = self.prj.inverse()
-
         self.screen_offset = Vector3(600, 400, 0)
         self.world_offset = Vector3(10,10,0)
 
-        self.changed = True 
-        self.queue = None
-
         ds = len(layers[0].data)
         self.view = pygame.Rect(0,0,ds,ds)
+
+        self.reproject(math.radians(45))
+
+        self.changed = True 
+        self.queue = None
+        self.dirty = []
 
     def center(self, (x, y)):
         pass
 
     def update(self, time=None):
-        self.prj.rotate_axis(math.radians(0.1), Vector3(0,0,1))
-        self.inv_prj = self.prj.inverse()
-        self.changed = True
         pass
+
+    def reproject(self, rot):
+        self.prj = Matrix4()
+        self.prj.scale(self.tile_size, self.tile_size, 1.0)
+        self.prj.rotate_axis(math.radians(60), Vector3(1,0,0))
+        self.prj.rotate_axis(rot, Vector3(0,0,1))
+
+        self.inv_prj = Matrix4()
+        self.inv_prj.scale(self.tile_size, self.tile_size / 2, 1.0)
+        self.inv_prj.rotate_axis(rot, Vector3(0,0,1))
+        self.inv_prj = self.inv_prj.inverse()
 
     def draw(self, surface, rect, sprites=[]):
         """
         draw the map onto a surface.
-        surfaces may be optionally passed and will be coalessed during the draw
         """
+
+        place = self.place
+        surblit = surface.blit
+
+        for rect, dirty in self.dirty:
+            surblit(dirty, rect)
+        self.dirty = []
 
         if self.changed:
             self.redraw(surface)
             self.changed = False
 
-        place = self.place
-        surblit = surface.blit
-
         if self.queue:
-            self.flushQueue()
+            self.flushQueue(surface)
 
-        dirty = [ surblit(sprite.image, place(sprite)) for layer, sprite in sprites ]
+
+
+        for spr in sprites:
+            p = self.project_point(spr.position)
+            w, h = spr.image.get_size()
+            p.y -= h
+            p.x -= w / 2
+            rect = int(p.x), int(p.y), w, h
+            dirty = pygame.Surface((w, h))
+            dirty.blit(surface, (0,0), area=rect)
+            self.dirty.append((pygame.Rect(rect), dirty))
+            surblit(spr.image, rect)
 
     def place(self, sprite):
         """ adjust the apparent position of a sprite """
@@ -85,18 +101,18 @@ class TilemapRenderer:
         if not value:
             return
 
-        ax, ay, az = self.project_point((x, y))
-        bx, by, bz = self.project_point((x+1, y))
-        cx, cy, cz = self.project_point((x+1, y+1))
-        dx, dy, dz = self.project_point((x, y+1))
+        ax, ay, az = self.project_point(Vector3(x, y, 0))
+        bx, by, bz = self.project_point(Vector3(x+1, y, 0))
+        cx, cy, cz = self.project_point(Vector3(x+1, y+1, 0))
+        dx, dy, dz = self.project_point(Vector3(x, y+1, 0))
 
         points = ((ax, ay), (bx, by), (cx, cy), (dx, dy))
 
         pygame.draw.polygon(surface, self.layers[l].colors[value-1], points)
 
-    def project_point(self, (x, y)):
+    def project_point(self, point):
         """ world --> screen """
-        return self.prj * (Vector3(x, y, 1) - self.world_offset) + self.screen_offset
+        return self.prj * (point - self.world_offset) + self.screen_offset
 
     def unproject_point(self, point):
         """ screen --> world """

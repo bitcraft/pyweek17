@@ -6,7 +6,7 @@ import context
 import math
 import heapq
 from itertools import product
-from euclid import Point2, Vector2, Vector3, Matrix4
+from euclid import Vector2, Point2, Point3, Vector3, Matrix4
 
 from pygame.locals import *
 
@@ -44,6 +44,8 @@ def distance2((ax, ay), (bx, by)):
 def clip(vector, lowest, highest):
     return type(vector)(map(min, map(max, vector, lowest), highest))
 
+TILECHANGE = 0
+
 """
 modified from:
 http://stackoverflow.com/questions/4159331/python-speed-up-an-a-star-pathfinding-algorithm
@@ -60,12 +62,13 @@ def aStar(current, end, limit):
         #return [ clip(i, (0,0), limit) for i in ((x-1, y), (x, y-1), (x+1, y), (x, y+1)) ]
 
     def retracePath(c):
-        path = [Point2(*c)]
+        path = [Point3(c[0], c[1], 0)]
         while parent.get(c, None) is not None:
             c = parent[c]
-            path.append(Point2(*c))
+            path.append(Point3(c[0], c[1], 0))
         return path
 
+    current = current[0], current[1]
     openSet.add(current)
     openHeap.append((0,current))
     while openSet:
@@ -93,8 +96,8 @@ class LevelMap:
         # initialize level data array with 1
         [ self.data.append(array.array('B')) for i in xrange(self.height) ]
         for (y, x) in product(xrange(self.height), xrange(self.width)):
-            self.data[y].append(REGOLITH)
-            #self.data[y].append(random.randint(0, 10))
+            #self.data[y].append(REGOLITH)
+            self.data[y].append(random.randint(0, 10))
 
     def tiles_of_type(self, tile_type):
         for y, row in enumerate(self.data):
@@ -119,23 +122,39 @@ class AIContext(context.Context):
         pass
 
 
+class ShuttleFlyAI(AIContext):
+    def enter(self):
+        self.sprite.move_vector = Vector3(0,0,.02/TIMESTEP)
+
+    def update(self, time):
+        self.sprite.position += self.sprite.move_vector * time
+        print self.sprite.position
+
+    def exit(self):
+        self.sprite.move_vector = Vector3(0,0,0)
+
+
 class MoveRandomAI(AIContext):
     def update(self, time):
         self.sprite.position += self.sprite.move_vector * time
         if random.random() > .90:
             s = self.sprite.travel_speed
-            self.sprite.move_vector = Vector2(
+            self.sprite.move_vector = Vector3(
                 random.uniform(-s, s),
-                random.uniform(-s, s))
+                random.uniform(-s, s),
+                0)
 
 
 class ExcavateAI(AIContext):
     def update(self, tile):
-        x, y = map(int, self.sprite.position)[:2]
+        global TILECHANGE
+
+        x, y, z = map(int, self.sprite.position)
 
         if self.sprite.level.data[y][x] == REGOLITH:
             self.sprite.level.data[y][x] = EXCAVATED
             self.sprite.carried += 1
+            TILECHANGE = 1
             self.done()
 
 
@@ -147,16 +166,16 @@ class SearchAndTravelAI(AIContext):
             dest, dist = spr.level.nearest_tile(spr.position, self.tile_type)
 
             if dest:
-                self.path = aStar(tuple(map(round, spr.position)), tuple(dest), (20, 20))
+                self.path = aStar(tuple(map(round, spr.position[:2])), tuple(dest), (20, 20))
             else:
                 self.done()
                 return
 
-        n = spr.position - self.path[-1] - (.5, .5)
+        n = spr.position - self.path[-1] - (.5, .5, 0)
         if abs(n) < .05:
             self.path.pop()
             if len(self.path) == 0:
-                spr.move_vector = Vector2(0,0)
+                spr.move_vector = Vector3(0,0,0)
                 self.done()
                 return
 
@@ -172,19 +191,22 @@ class SearchAndTravelAI(AIContext):
 
 class DropCarriedAI(AIContext):
     def update(self, tile):
-        if self.sprite.carried > 0:
-            x, y = map(int, self.sprite.position)[:2]
+        spr = self.sprite
+        if spr.carried > 0:
+            x, y = map(int, spr.position)[:2]
 
-            if self.sprite.level.data[y][x] == STOCKPILE:
-                self.sprite.carried -= 1
+            if spr.level.data[y][x] == STOCKPILE:
+                spr.carried -= 1
             else:
                 self.done()
         else:
+            #s = Shuttle(spr.level)
+            #s.position = spr.position.copy()
+            #spr.groups()[0].add(s)
             self.done()
 
 
-
-class GameObject(pygame.sprite.Sprite):
+class GameObject(pygame.sprite.DirtySprite):
     def __init__(self, level):
         super(GameObject, self).__init__()
         self.travel_speed = 3/TIMESTEP
@@ -192,11 +214,14 @@ class GameObject(pygame.sprite.Sprite):
         self.ai_stack = context.ContextDriver()
         self.ai_lists = []
         self.ai_cursor = 0 
-        self.move_vector = Vector2(0,0)
-        self.position = Vector2(0,0)
+        self.move_vector = Vector3(0,0,0)
+        self.position = Vector3(0,0,0)
         self.init()
 
         self.pixel_size = self.world_size * TILESIZE
+
+        for task in reversed(self.ai_lists[0]):
+            self.ai_stack.append(task)
 
     def update(self, time):
         task = self.ai_stack.current_context
@@ -233,13 +258,17 @@ class Minion(GameObject):
         self.world_size = Vector2(.2, .5)
 
 class Enemy(GameObject):
-    def __init__(self):
+    def init(self):
         self.image = pygame.Surface((12, 24))
         self.image.fill(colors[4])
         self.world_size = Vector2(.2, .5)
 
-    def update(self, time):
-        pass
+class Shuttle(GameObject):
+    def init(self):
+        self.image = pygame.Surface((12, 24))
+        self.image.fill(colors[-1])
+        self.world_size = Vector2(.2, .5)
+        self.ai_lists.append([ShuttleFlyAI(sprite=self)])
 
 
 class IsoGroup(pygame.sprite.Group):
@@ -252,12 +281,7 @@ class IsoGroup(pygame.sprite.Group):
         self.tile_size = tile_size
 
     def draw(self, surface, area):
-        sprites = []
-        for spr in self.sprites():
-            sprites.append((1, spr))
-        self.lostsprites = []
-
-        self.tilemap.draw(surface, area, sprites)
+        self.tilemap.draw(surface, area, self.sprites())
 
 if __name__ == '__main__':
     pygame.init()
@@ -273,10 +297,11 @@ if __name__ == '__main__':
     tilemap = tilemap.TilemapRenderer([level], TILESIZE)
 
     h00 = Harvester(level)
-    h00.position += 4.5, 4.5
+    h00.position += 4.5, 4.5, 0
 
     game_group = IsoGroup()
     game_group.set_tilemap(tilemap, TILESIZE)
+
     game_group.add(h00)
 
     area = pygame.Rect((0,0), screen_dim)
@@ -285,7 +310,10 @@ if __name__ == '__main__':
     while run:
         game_group.update(30)
 
-        screen.fill((0,0,0))
+        if TILECHANGE:
+            game_group.tilemap.changed = True
+            TILECHANGE = False
+
         game_group.draw(screen, area)
 
         for i, c in enumerate(colors):
@@ -297,7 +325,7 @@ if __name__ == '__main__':
         try:
             event = pygame.event.poll()
             #event = pygame.event.wait()
-            if (event.type == QUIT) or (event.type == KEYDOWN): run = False
+            if event.type == QUIT: run = False
             if event.type == MOUSEMOTION:
                 mx, my = event.pos
 
