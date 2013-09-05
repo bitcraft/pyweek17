@@ -3,7 +3,7 @@ rewrite of the tilmap engine for lib2d.
 """
 
 from euclid import Vector2, Vector3, Point3, Matrix4
-from itertools import product, chain, ifilter
+from itertools import product, chain, ifilter, izip
 import pygame, math
 
 
@@ -31,9 +31,13 @@ class TilemapRenderer:
 
         self.reproject(math.radians(45))
 
+        self.refresh = False
         self.changed = True 
         self.queue = None
-        self.dirty = []
+        self.dirty_rect_list = []
+        self.dirty_surface_list = []
+
+        self.surface = pygame.Surface((1200, 800))
 
     def center(self, (x, y)):
         pass
@@ -60,26 +64,26 @@ class TilemapRenderer:
         place = self.place
         surblit = surface.blit
 
-        for rect, dirty in self.dirty:
-            surblit(dirty, rect)
-        self.dirty = []
-
         if self.changed:
-            self.redraw(surface)
+            self.redraw()
+            surface.blit(self.surface, (0,0))
             self.changed = False
 
-        if self.queue:
-            self.flushQueue(surface)
+        for rect in self.dirty_rect_list:
+            surblit(self.surface, rect, area=rect)
+
+        self.dirty_rect_list = []
+
+        #if self.queue:
+        #    self.flushQueue(surface)
 
         for spr in sprites:
             p = self.project_point(spr.position)
             w, h = spr.image.get_size()
             p.y -= h
             p.x -= w / 2
-            rect = int(p.x), int(p.y), w, h
-            dirty = pygame.Surface((w, h))
-            dirty.blit(surface, (0,0), area=rect)
-            self.dirty.append((pygame.Rect(rect), dirty))
+            rect = pygame.Rect(int(p.x), int(p.y), w, h)
+            self.dirty_rect_list.append(rect)
             surblit(spr.image, rect)
 
     def place(self, sprite):
@@ -116,14 +120,14 @@ class TilemapRenderer:
         """ screen --> world """
         return self.inv_prj * (point - self.screen_offset) + self.world_offset
 
-    def flushQueue(self, surface):
-        surface.lock()
-        [ self.paintTile(surface, i) for i in self.queue ]
-        surface.unlock()
+    def flushQueue(self):
+        self.surface.lock()
+        [ self.paintTile(self.surface, i) for i in self.queue ]
+        self.surface.unlock()
         self.queue = None
 
-    def redraw(self, surface):
+    def redraw(self):
         self.queue = product(xrange(self.view.left, self.view.right),
                              xrange(self.view.top, self.view.bottom),
                              xrange(len(self.visibleTileLayers)))
-        self.flushQueue(surface)
+        self.flushQueue()
