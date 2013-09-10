@@ -1,18 +1,8 @@
-"""
-rewrite of the tilmap engine for lib2d.
-"""
-
 from euclid import Vector2, Vector3, Point3, Matrix4
-from itertools import product, chain, ifilter, izip
+from itertools import product 
 import pygame, math
+from const import colors
 
-
-# this image will be used when a tile cannot be loaded
-def generateDefaultImage(size):
-    i = pygame.Surface(size)
-    i.fill((0, 0, 0))
-    i.set_alpha(128)
-    return i
 
 
 class TilemapRenderer(object):
@@ -29,6 +19,7 @@ class TilemapRenderer(object):
 
         self.reproject(math.radians(45))
 
+        self.surface = None
         self.highlighted = set()
         self.refresh = 1
         self.queue = set()
@@ -40,7 +31,7 @@ class TilemapRenderer(object):
         pass
 
     def update(self, time=None):
-        #self.prj.rotate_axis(0.005, Vector3(0,0,1))
+        #self.prj.rotate_axis(0.01, Vector3(0,0,1))
         #self.changed = 1
         pass
 
@@ -75,15 +66,15 @@ class TilemapRenderer(object):
         place = self.place
         surblit = surface.blit
 
-        if self.queue:
+        if len(self.queue) == 0:
             self.flushQueue()
             self.refresh = 1
 
         if self.refresh:
+            self.refresh = 0
             self.redraw()
             surface.blit(self.surface, (0,0))
             self.dirty_rect_list = []
-            self.refresh = 0
 
         for rect in self.dirty_rect_list:
             surblit(self.surface, rect, area=rect)
@@ -95,12 +86,18 @@ class TilemapRenderer(object):
 
         for index, spr in sprites:
             p = self.project_point(spr.position)
-            w, h = spr.image.get_size()
-            p.y -= h
-            p.x -= w / 2
-            rect = pygame.Rect(int(p.x), int(p.y), w, h)
-            self.dirty_rect_list.append(rect)
-            surblit(spr.image, rect)
+            try:
+                w, h = spr.image.get_size()
+                p.y -= h
+                p.x -= w / 2
+                rect = pygame.Rect(int(p.x), int(p.y), w, h)
+                self.dirty_rect_list.append(rect)
+                surblit(spr.image, rect)
+            except AttributeError:
+                p2 = self.project_point(spr.endpoint)
+                pygame.draw.line(surface, (192, 200, 255), (p.x, p.y), (p2.x, p2.y), int(spr.life))
+                rect = pygame.Rect(p.x, p.y, p.x - p2.x, p.y - p2.y)
+                self.dirty_rect_list.append(rect)
 
     def place(self, sprite):
         """ adjust the apparent position of a sprite """
@@ -113,7 +110,7 @@ class TilemapRenderer(object):
     def mark_changed(self, position):
         self.queue.add((position[0], position[1], 0))
 
-    def paintTile(self, surface, (x, y, z), width=0, color=None):
+    def paintTile(self, surface, (x, y, z), width=0, color=None, outline=False):
         ax, ay, az = self.project_point(Vector3(x, y, z))
         bx, by, bz = self.project_point(Vector3(x+1, y, z))
         cx, cy, cz = self.project_point(Vector3(x+1, y+1, z))
@@ -122,9 +119,11 @@ class TilemapRenderer(object):
         points = ((ax, ay), (bx, by), (cx, cy), (dx, dy))
 
         if color is None:
-            color = self.layer.get_tile_color((x, y))
+            color = colors[self.layer.get_raw((x, y))]
 
         pygame.draw.polygon(surface, color, points, width)
+        if outline:
+            pygame.draw.lines(surface, (200,200,180), 1, points, 3)
 
     def project_point(self, point):
         """ world --> screen """
@@ -141,14 +140,19 @@ class TilemapRenderer(object):
         self.queue = set()
 
     def redraw(self):
-        self.surface = pygame.Surface((1200, 800))
+        if self.surface:
+            self.surface.fill((0,0,0))
+        else:
+            self.surface = pygame.Surface((1200, 800))
         self.queue = product(xrange(self.view.left, self.view.right),
                              xrange(self.view.top, self.view.bottom),
                              xrange(1))
         self.flushQueue()
 
+        self.surface.lock()
         for x, y in self.highlighted:
             try:
                 self.paintTile(self.surface, (x, y, 0), width=2, color=(255,255,240))
             except IndexError:
                 pass
+        self.surface.unlock()

@@ -1,29 +1,34 @@
 import pygame
 
 
+volume = .4
 
 TILESIZE = 48
 TIMESTEP = 30.0
 COLORSTEP = 8
 
 REGOLITH = 0
-STOCKPILE = 1
-FARM = 2
-WATER = 3
-ORIGIN = 4
-FOOD = 5
-BARREN = 6
-KITCHEN = 7
+BARREN = 1
+STOCKPILE = 2
+FARM = 3
+ENERGY = 4
+KITCHEN = 5
+BARRACKS = 6
+FOOD = 7
 
+transport_map = {
+    FARM: KITCHEN,
+    REGOLITH: STOCKPILE,
+}
 
 primary_colors = [
     '#75987c', #lunar green
-    '#f7a50d', #sunset orange
-    '#1b5a2c', #algae
-    '#a2000d', #red
     '#403d32', #wet dirt
-    '#ef899b', #warm pink
+    '#a2000d', #red
+    '#1b5a2c', #algae
     '#3f9089', #tiffany blue
+    '#f7a50d', #sunset orange
+    '#ef899b', #warm pink
     '#75202d', #maroon
     '#09303a', #dark navy blue
     '#bc9e60', #khaki
@@ -47,3 +52,24 @@ for i, c in enumerate(primary_colors[:-2]):
             b -= 7
         colors.append(pygame.Color(r, g, b))
 
+tblocks = [
+    ((0,0,0), (1,0,0), (1,-1,0), (0,-1,0)),
+    ((0,0,0), (1,0,0), (-1,0,0), (0,1,0)),
+    ((-2,0,0), (-1,0,0), (0,0,0), (1,0,0), (2,0,0)),
+    ((-1,-1,0), (0,-1,0), (0,0,0), (1,0,0)),
+    ((-1,0,0), (0,0,0), (0,-1,0), (1,-1,0)),
+    ((-1,0,0), (0,0,0), (0,-1,0), (0,-2,0)),
+    ((1,0,0), (0,0,0), (0,-1,0), (0,-2,0))
+]
+
+
+status_msg = {
+    'idle': 'your minions are idle. drop some tiles around them so they can work',
+    'regolith1': 'place tiles and create a 5x5 square of any color to extract materials',
+    'regolith2': 'materials can be traded for bonuses',
+    'prepare': 'prepare for the next wave by placing blue energy tiles',
+    'lowenergy': 'your energy is too low.  place blue tiles to increase energy for your turrets',
+    'levelup': 'minions grow stronger as they complete tasks. try to keep them busy',
+    'clone1': 'minions will clone a new minion by mining green tiles and filling yellow tiles',
+    'clone2': 'clones start weak.  be sure to keep the clones busy.'
+}
