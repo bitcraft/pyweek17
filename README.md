@@ -1,6 +1,8 @@
 Bitcraft's PyWeek 17 Entry: Tetris Tower Defense!
 =================================================    
     
+### this is an on-going development alpha quality game ####
+
 
 Gameplay
 --------
