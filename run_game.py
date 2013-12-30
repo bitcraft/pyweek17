@@ -173,7 +173,7 @@ if __name__ == '__main__':
 
     pygame.mixer.set_num_channels(32)
 
-    music = glob('*mp3', 'music')
+    music = glob('*ogg', 'music')
     pygame.mixer.music.set_volume(.6)
     pygame.mixer.music.load(music[0])
     pygame.mixer.music.play(-1)
